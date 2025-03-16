@@ -1,201 +1,276 @@
-# 一、auto
+ 
 
-## 1、作用
+一、什么是右值、左值？
+-----------
 
-auto 用于**自动推导`变量`的类型**，编译器会根据初始化表达式推断变量的类型。
-
-- **核心规则**
-  - **忽略顶层 const 和引用**（**除非显式声明为 const 或引用，就是在auto前或auto后写const或引用**）。
-  - 类型推导基于初始化表达式的值类型（**即表达式本身的类型，不含引用和 const**）。
-
-> **那么什么是显示声明**？
-> 例如：
-> 
-> ```cpp
-> int x = 10;
-> const int y = 20;
-> int& ref = x;
-> 
-> auto a = x;       // a 的类型是 int（忽略顶层 const 和引用）
-> auto b = y;       // b 的类型是 int（忽略 const）
-> auto c = ref;     // c 的类型是 int（忽略引用）
-> auto& d = ref;    // d 的类型是 int&（显式保留引用）
-> const auto e = y; // e 的类型是 const int（显式声明 const）
-> 
-> ```
-
-## 2、区分const，&
-
-举例说明，加const 或&的情况下，auto的变量是什么类型。**通过这个例子，大家就能理解到auto的转换了**。常见的写法，例如：
+*   左值可以取地址，一般位于等号左边。
+*   右值没法取地址，位于等号右边。
 
 ```cpp
-#include<iostream>
-#include<cstdio>
+int a = 8;
+```
 
-using namespace std;
-int main(int argv,char* argc[]){
-    int x =0;
-    int & y =x;
-    const int z = 10;
-    auto x1= x;//x1是int
-    auto x2 = y;//x2是int
-    auto &x3= x;//x3是int &
-    auto &x4 = y;//x4是int &
-    const auto x5= x;//x5是const int
-    const auto x6 = z;//x6是const int
-    auto x7=z;//x7是int
-    auto &x8 =z;//x8是const int &
+*   a可以通过&取地址，位于等号左边，所以a是左值。
+*   8没法通过&取地址，位于等号右边，所以8是右值。
+
+再举个复杂的例子：
+
+```cpp
+struct A{
+    A(int a=0){
+        a_ = a;
+    }
+    int a_;
+};
+A a =A();
+```
+
+*   同样的，a可以通过&取地址，位于等号左边，所以a是左值。
+*   A（）是个临时值，没办法取地址，是右值。  
+    可见，**有地址的变量就是左值，没有地址的字面值、临时值就是右值**。
+
+二、什么是左值应用、[右值引用](https://so.csdn.net/so/search?q=%E5%8F%B3%E5%80%BC%E5%BC%95%E7%94%A8&spm=1001.2101.3001.7020)
+--------------------------------------------------------------------------------------------------------------
+
+### 2.1、左值引用
+
+左值引用：能指向左值，不能指向右值的就是左值引用。
+
+```cpp
+int a = 5;
+int &ref_a=a;//左值引用指向左值，编译通过
+int &ref_a=5;//左值引用指向右值，编译失败
+```
+
+引用是变量的别名，**由于右值没有地址，没法被修改**，所以**左值引用无法指向右值**。  
+但是const左值引用可以指向右值：
+
+```cpp
+const int& ref_a = 5;
+```
+
+const 左值引用不会修改指向值，因此可以指向右值，这也是为什么要使用const &作为[函数参数](https://so.csdn.net/so/search?q=%E5%87%BD%E6%95%B0%E5%8F%82%E6%95%B0&spm=1001.2101.3001.7020)的原因之一，如 std::vector的push\_back()：
+
+```cpp
+void push_back(const value_type& val);
+```
+
+**如果没有const，vec.push\_back(5)这样的代码就无法编译成功**。
+
+### 2.2、右值引用
+
+右值引用的标志是&&，顾名思义，右值引用为右值而生，可以指向右值，不能指向左值。
+
+```cpp
+int&& ref_a_right=7;//ok
+int a = 8;
+int &&ref_a_right = a;//编译失败，右值引用不能指向左值
+ref_a_right = 2;//右值引用的用途，可以修改右值
+```
+
+### 2.3、对左右值引用本质的讨论
+
+#### 2.3.1、右值引用有办法指向左值吗？
+
+可以使用std::move：
+
+```cpp
+int a = 5;//a是个左值
+int &ref_a_left = a;//左值引用指向左值
+int &&ref_a_right = std::move(a);//通过std::move将左值转为右值，可以被右值引用指向
+
+```
+
+std::move是一个非常迷惑性的函数：
+
+*   不理解左右值概念的人们往往以为它能把一个变量里的内容移动到另一个变量。**右值引用也是引用**。
+*   **但事实上std::move移动不了什么**，唯一的功能是**把左值强制转换成右值**，让右值引用可以指向左值。其实现**等同于类型转换：static\_cast<T&&>（value）。所以move不会有性能提升**。
+*   同样的，右值引用能指向右值，本质上也是把左值变右值了，并定义一个右值引用通过std::move()指向左值。
+
+```cpp
+int &&ref_a = 5;
+ref_a = 6;
+//等同于
+int temp =5;
+int &&ref_a = std::move(temp);
+ref_a = 6;
+//temp等于6
+```
+
+```cpp
+int temp = 5;
+int &ref_t = temp;
+int &&ref_a = std::move(temp);
+ref_a = 6;
+cout<<&temp<<" ,"<<&ref_t<<" ,"<<&ref_a<<endl;
+//一样的地址
+cout<<temp<<endl;//6
+```
+
+#### 2.3.2、总结
+
+1.  从性能上看，左右值没区别，传参使用左右值引用都可以**避免拷贝**。
+2.  右值引用可以直接指向右值，也可以通过std::move指向左值；而左值引用只能指向左值（const左值引用也能指向右值）。
+3.  **作为函数形参时，右值引用更灵活。虽然const左值引用也可以做到左右值都接收，但是无法修改值**。
+
+三、右值引用和std::move使用场景
+--------------------
+
+### 3.1、右值引用优化性能，避免深拷贝
+
+浅拷贝重复释放
+
+```cpp
+class ShallowCopy {
+public:
+    int* data;
+
+    ShallowCopy(int value) : data(new int(value)) {}
+    ~ShallowCopy() { delete data; }
+};
+
+int main() {
+    ShallowCopy obj1(10);
+    ShallowCopy obj2 = obj1;  // 浅拷贝，obj2.data 和 obj1.data 指向同一块内存
+
+    // obj1 和 obj2 析构时都会尝试释放同一块内存，导致重复释放错误
+    return 0;
 }
 ```
 
-## 3、auto的高级使用
-
-- 指针与引用【如果第2点能懂，那么这里稍微看看就能明白了】
-  
-  ```cpp
-  #include<iostream>
-  #include<cstdio>
-  using namespace std;
-  int main(int argv,char* argc[]){
-      int x =0;
-      auto * x1=&x;//x1为int*  也就是说auto是int
-      auto x2 =&x;//x2为int*   auto推导为int*
-      auto& x3 = x;//x3为int& auto推导为int
-      auto x4 = x;//x4是int     auto推导为int
-  }
-  ```
-  
-  
-
-- **C++11** lambda中使用
+深拷贝
 
 ```cpp
-    auto func = [](int a, int b) { return a + b; };
-```
+class DeepCopy {
+public:
+    int* data;
 
-   
+    DeepCopy(int value) : data(new int(value)) {}
+    DeepCopy(const DeepCopy& other) : data(new int(*other.data)) {}  //左值引用内部 深拷贝
+    ~DeepCopy() { delete data; }
+};
 
-- **C++14** lambda**支持auto参数**
-  
-  ```cpp
-  auto lambda = [](auto a, auto b) { return a + b; };
-  
-  ```
+int main() {
+    DeepCopy obj1(10);
+    DeepCopy obj2 = obj1;  // 深拷贝，obj2.data 是 obj1.data 的副本
 
-## 4、auto的4个限制
-
-- 不能在**函数的参数**中使用
-
-- 不能作用于**类的非静态成员变量**
-
-- 不能作用于**模版参数**
-
-- 不能推导**数组**类型
-
-# 二、decltype
-
-## 1、作用
-
-decltype 用于**推导`表达式`的类型**，保留表达式的顶层 const 和引用。
-
-- **核心规则**
-  - **保留表达式的完整类型（包括 const 和引用）**。
-  - **变量名**：推导声明类型；**表达式**：推导计算结果的类型。
-
-例如：
-
-```cpp
-int x = 10;
-const int y = 20;
-int& ref = x;
-
-decltype(x) a = x;        // a 的类型是 int
-decltype(y) b = y;        // b 的类型是 const int
-decltype(ref) c = ref;    // c 的类型是 int&
-decltype(x + y) d = x;    // d 的类型是 int（表达式 x+y 的类型是 int）
-decltype((x)) e = x;      // e 的类型是 int&（括号强制为表达式，推导出引用）
-
-
-```
-
-> **注意**：**decltype((x))这里有强制转换成引用**
-
-## 2、decltype的高级使用
-
-- 模板编程中推导**返回值类型**
-  
-  - **C++11**中template**需要decltype**来得add的**返回**类型。**C++14可以自动推出**，不用写decltype。
-    
-    ```cpp
-    #include<iostream>
-    #include<cstdio>
-    #include<typeinfo>
-    using namespace std;
-    template <class R,class T,class U>
-    R add(T t,U u){
-    return t+u;
-    }
-    int main(int argv,char* argc[]){
-    int x = 10;
-    double y = 20.0;
-    auto result = add<decltype(x+y)> (x,y);
-    }
-    ```
-    
-    或写成
-    
-    ```cpp
-    #include<iostream>
-    #include<cstdio>
-    #include<typeinfo>
-    using namespace std;
-    template <class T,class U>
-    auto add(T t,U u)->decltype(t+u){//可能大家会发现这里是auto而不是class R
-    //之所以这样是因为，如果使用class R，就会冗余，无法推导了，需要强制转换才能改回来。强制转换就是上面的写法
-    return t+u;
-    }
-    int main(int argv,char* argc[]){
-    int x = 10;
-    double y = 20.0;
-    auto result = add(x,y);
-    }
-    ```
-
-- 保留引用和 const 属性
-  
-  ```cpp
-  const std::vector<int> vec = {1, 2, 3};
-  decltype(vec[0]) elem = vec[0]; // elem 的类型是 const int&
-  
-  ```
-
-```
-
-- **C++14**中auto和decltype相结合了
-```cpp
-int main(int argv,char* argc[]){
-    int x = 10;
-    int y =10;
-    decltype(auto) res =  x+y;
+    // obj1 和 obj2 析构时各自释放自己的内存，没有重复释放问题
+    return 0;
 }
 ```
 
-# 三、类型检查工具
-
-1. 运行时类型信息（RTTI）
-   使用 typeid 配合 typeinfo 获取类型名称（仅作调试）：
+移动构造函数
 
 ```cpp
-#include <typeinfo>
-auto x = 42;
-std::cout << typeid(x).name();  // 输出 "i"（表示 int）
+class MyClass {
+public:
+    int* data;
+
+    // 构造函数
+    MyClass(int value) : data(new int(value)) {}
+
+    // 移动构造函数
+    MyClass(MyClass&& other) noexcept : data(other.data) {
+        other.data = nullptr;  // 将源对象的指针置空
+    }
+
+    // 析构函数
+    ~MyClass() { delete data; }
+};
+
+int main() {
+    MyClass obj1(10);
+    MyClass obj2 = std::move(obj1);  // 调用移动构造函数，obj1 的资源被移动到 obj2
+
+    // obj1.data 现在是 nullptr，obj2.data 持有资源
+    return 0;
+}
 ```
 
-> 注意
-> 
-> - **typeid 无法区分引用/const**（需结合 decltype）。
-> - 编译器输出名称可能非标准化（**如 "i" 表示 int**）。
+*   **浅拷贝**：**直接复制指针**，导致重复释放问题。
+*   **深拷贝**：**复制资源**，**避免重复释放**，但带来性能开销。
+*   **移动构造函数**：**通过右值引用 “窃取” 资源** ，避免深拷贝，优化性能。
+*   **使用move要写&&的构造**。
 
-# 四、综合对比表
+### 3.2、forward完美转发
 
-![在这里插入图片描述](https://i-blog.csdnimg.cn/direct/4c3584a54a9b4f208315a74f28edb868.png)
+forward完美转发实现了**参数在传递过程中保持其值属性的功能**，即若是左值，则传递之后仍是左值，若是右值，传递之后仍是右值。
+
+```c++
+Template<class T>
+void func(T&& val);
+```
+
+根据前面所描述的，这种引用类型**既可以对左值引用，也可以对右值引用**。  
+**但注意，引用之后，这个val值本质是一个左值**！  
+看下面例子：
+
+```c++
+int &&a = 10;
+int &&b = a;//错误
+```
+
+注意这里，a是一个右值引用，**但其本身a也有内存名字**，所以a本身是一个左值，再右值引用引用a这是不对的。  
+因此我们有了std::forward()完美转发，这种T&& val中的val是左值，但如果我们用std::forward(val),就会按照参数原来的类型转发；
+
+```cpp
+int &&a =10;
+int &&b = std::forward<int>(a);
+```
+
+这样是正确的。  
+通过范例巩固下知识：
+
+```cpp
+#include <iostream>
+#include <utility>
+
+void target_function(int& value) {
+    std::cout << "Lvalue: " << value << std::endl;
+}
+
+void target_function(int&& value) {
+    std::cout << "Rvalue: " << value << std::endl;
+}
+
+template <typename T>
+void wrapper(T&& arg) {
+    // 使用 std::forward 保持 arg 的原始值类别
+    target_function(std::forward<T>(arg));
+}
+
+int main() {
+    int value = 42;
+
+    wrapper(value);       // 调用 target_function(int&)
+    wrapper(123);         // 调用 target_function(int&&)
+    wrapper(std::move(value));  // 调用 target_function(int&&)
+
+    return 0;
+}
+/*输出
+Lvalue: 42
+Rvalue: 123
+Rvalue: 42
+*/
+```
+
+### 3.3、emplace\_back减少内存拷贝和移动
+
+对于STL容器，c++11后引入了emplace\_back()接口。  
+emplace\_back是**就地构造**，**不用构造后再次复制到容器中**。因此效率更高。  
+考虑这样的语句：
+
+```c++
+vector<string>testVec;
+testVec.push_back(string(16,'a'));
+```
+
+上述语句足够简单易懂，将一个string对象添加到testVec中。底层实现：
+
+*   首先，string(16,‘a’)会创建一个string类型的**临时对象**，这涉及到string构造过程。
+*   其次，vector会**创建一个新的string对象**，这是第二次构造。
+*   最后push\_back()结束时，最开始的临时对象会被析构。加在一起，这2行代码会涉及到2次string构造和一次析构。  
+    C++11可以使用emplace\_back代替push\_back，emplace\_back可以直接在vector中创建一个对象，而非创建一个临时对象，再放进vector，再销毁。emplace\_back可以**省略一次构建和一次析构**，达到优化目的。
+
+本文转自 <https://blog.csdn.net/2401_82911768/article/details/145717129?spm=1001.2014.3001.5502>，如有侵权，请联系删除。
